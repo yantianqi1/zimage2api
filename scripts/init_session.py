@@ -1,6 +1,13 @@
-"""会话初始化脚本 - 首次运行时使用"""
+"""
+ZImage 会话初始化脚本 - 首次运行时使用
+"""
 import asyncio
 import sys
+from pathlib import Path
+
+# 添加父目录到路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 from zimage_client import ZImageBrowser
 
 
@@ -21,20 +28,19 @@ async def main():
 
     try:
         print("正在启动浏览器...")
-        await browser.init(slow_mo=100)
+        print("提示: 如果浏览器闪退，请确保系统允许运行 Chrome")
+        await browser.init(slow_mo=500, timeout=60000)
 
         print()
-        print("浏览器已打开，请完成以下操作：")
-        print("1. 如果看到人机验证，请手动完成")
-        print("2. 确保页面正常加载")
+        print("✓ 浏览器已打开")
+        print("请完成以下操作：")
+        print("1. 如果看到人机验证，请手动点击完成")
+        print("2. 确保页面正常加载（能看到输入框）")
         print("3. 按回车键保存会话")
         print()
 
         # 等待用户按回车
-        if sys.platform == "win32":
-            input("按回车键保存会话...")
-        else:
-            input("按回车键保存会话...")
+        input("按回车键保存会话...")
 
         await browser.save_session()
         print()
@@ -43,8 +49,17 @@ async def main():
 
     except Exception as e:
         print(f"\n✗ 错误: {e}")
+        print("\n尝试解决方案:")
+        print("1. 确保 Chrome 没有被系统阻止（系统设置 -> 隐私与安全性）")
+        print("2. 手动关闭所有 Chrome 进程后重试")
+        print("3. 重启电脑后重试")
+        import traceback
+        traceback.print_exc()
     finally:
-        await browser.close()
+        try:
+            await browser.close()
+        except:
+            pass
 
 
 if __name__ == "__main__":
