@@ -1,0 +1,40 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 虚拟环境
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 数据文件
+cookies.json
+data/
+*.log
+
+# Playwright
+.ms-playwright/
+
+# 生成的图片
+*.jpg
+*.jpeg
+*.png
+*.webp
+output/
+downloads/

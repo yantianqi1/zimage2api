@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  zimage-api:
+    build: .
+    container_name: zimage-api
+    ports:
+      - "8000:8000"
+    environment:
+      - API_KEY=${API_KEY:-your-secret-api-key}
+      - PORT=8000
+      - HOST=0.0.0.0
+      - HEADLESS=true
+      - COOKIE_FILE=/app/data/cookies.json
+      - LOG_LEVEL=INFO
+    volumes:
+      # 挂载cookie文件，持久化会话
+      - ./data:/app/data
+      # 可选：挂载本地cookie文件进行初始化
+      - ./cookies.json:/app/cookies.json:ro
+    restart: unless-stopped
+    # 如果需要显示浏览器（初始化时），取消下面的注释
+    # environment:
+    #   - DISPLAY=${DISPLAY}
+    # volumes:
+    #   - /tmp/.X11-unix:/tmp/.X11-unix
+
+  # 可选：使用redis作为任务队列
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: zimage-redis
+  #   volumes:
+  #     - redis_data:/data
+  #   restart: unless-stopped
+
+# volumes:
+#   redis_data:
