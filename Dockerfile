@@ -2,6 +2,7 @@ FROM python:3.11-slim
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
+    bash \
     wget \
     gnupg \
     ca-certificates \
@@ -42,6 +43,10 @@ RUN apt-get update && apt-get install -y \
     xdg-utils \
     libu2f-udev \
     libvulkan1 \
+    xvfb \
+    x11vnc \
+    novnc \
+    websockify \
     && rm -rf /var/lib/apt/lists/*
 
 # 设置工作目录
@@ -61,9 +66,12 @@ COPY . .
 
 # 创建cookie目录
 RUN mkdir -p /app/data
+RUN chmod +x /app/start.sh
 
 # 暴露端口
 EXPOSE 8000
+EXPOSE 6080
+EXPOSE 5900
 
 # 启动命令
-CMD ["python", "main.py"]
+CMD ["./start.sh"]

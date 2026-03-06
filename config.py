@@ -1,11 +1,20 @@
-"""
-配置文件
-"""
-from pydantic_settings import BaseSettings
+"""配置文件"""
+
 from functools import lru_cache
+
+from pydantic import ConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """应用配置。"""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
     # API配置
     API_KEY: str = "your-secret-api-key"
     PORT: int = 8000
@@ -18,7 +27,13 @@ class Settings(BaseSettings):
 
     # 会话配置
     COOKIE_FILE: str = "./cookies.json"
-    SESSION_REFRESH_INTERVAL: int = 1800  # 30分钟
+    STATE_FILE: str = "./data/storage-state.json"
+    SESSION_REFRESH_INTERVAL: int = 1800
+    SESSION_TTL_CHECK_INTERVAL: int = 300
+    HANDOFF_ENABLED: bool = True
+    NOVNC_BASE_URL: str = "http://localhost:6080/vnc.html"
+    SESSION_MODE: str = "headless"
+    MAX_CONCURRENT_TASKS: int = 1
 
     # 重试配置
     MAX_RETRIES: int = 3
@@ -29,11 +44,7 @@ class Settings(BaseSettings):
 
     # ZImage网站配置
     ZIMAGE_URL: str = "https://zimage.run/zh"
-    ZIMAGE_GENERATE_TIMEOUT: int = 120  # 生图超时时间(秒)
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    ZIMAGE_GENERATE_TIMEOUT: int = 120
 
 
 @lru_cache()

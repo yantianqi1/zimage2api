@@ -1,12 +1,12 @@
 # ZImage API Server
 
-将 zimage.run 的图像生成功能包装为通用 API 服务。
+将 `zimage.run` 的图像生成功能包装为通用 API 服务，并支持服务器端会话托管。
 
 ## 架构
 
 - **后端**: FastAPI + Playwright
 - **认证**: API Key
-- **会话**: Cookie持久化 + 定时刷新
+- **会话**: `storage_state` 持久化 + 服务器端 noVNC 人工接管
 - **队列**: 异步任务处理
 
 ## 快速开始
@@ -41,25 +41,35 @@ HEADLESS=true
 BROWSER_TIMEOUT=60000
 
 # 会话配置
-COOKIE_FILE=./cookies.json
-SESSION_REFRESH_INTERVAL=3600
+COOKIE_FILE=./data/cookies.json
+STATE_FILE=./data/storage-state.json
+HANDOFF_ENABLED=true
+NOVNC_BASE_URL=http://<server-ip>:6080/vnc.html?autoconnect=true&resize=remote
 ```
 
-### 4. 首次启动（人工验证）
+### 4. 首次启动（服务器端人工接管）
 
 ```bash
-# 以非headless模式启动，完成Cloudflare验证
-python scripts/init_session.py
+# 启动完整服务栈
+docker compose up --build -d
 ```
 
-浏览器会打开，手动完成人机验证，完成后按回车保存会话。
+然后访问：
+
+- API: `http://<server-ip>:8000/docs`
+- noVNC 接管页: `http://<server-ip>:6080/vnc.html?autoconnect=true&resize=remote`
+
+首次无状态文件时，会话状态会进入 `needs_human`。此时：
+
+1. 调用 `POST /api/v1/session/handoff/start`
+2. 打开返回的 `handoff_url`
+3. 在服务器端浏览器中完成验证
+4. 调用 `POST /api/v1/session/handoff/complete`
 
 ### 5. 启动API服务
 
 ```bash
-python main.py
-# 或使用uvicorn
-uvicorn main:app --host 0.0.0.0 --port 8000
+docker compose up -d
 ```
 
 ## API 文档
@@ -79,8 +89,7 @@ Content-Type: application/json
 {
   "prompt": "一只可爱的猫咪",
   "model": "turbo",
-  "width": 1024,
-  "height": 1024,
+  "size": "1024x1024",
   "num_images": 1
 }
 ```
@@ -90,9 +99,8 @@ Content-Type: application/json
 {
   "success": true,
   "task_id": "task_xxx",
-  "images": [
-    "https://files.zimage.run/xxx.jpg"
-  ]
+  "message": "任务已提交",
+  "estimated_time": 30
 }
 ```
 
@@ -104,21 +112,24 @@ Content-Type: application/json
 
 **GET** `/api/v1/models`
 
+### 会话管理
+
+- `GET /api/v1/session/status`
+- `POST /api/v1/session/handoff/start`
+- `POST /api/v1/session/handoff/complete`
+- `POST /api/v1/session/refresh`
+
 ## Docker 部署
 
 ```bash
-# 构建镜像
-docker build -t zimage-api .
-
-# 运行（首次需要挂载显示进行验证）
-docker run -p 8000:8000 -v $(pwd)/cookies.json:/app/cookies.json zimage-api
+docker compose up --build -d
 ```
 
 ## 注意事项
 
-1. **Cloudflare验证**: 会话会过期，需要定期刷新或重新验证
-2. **频率限制**: 建议添加请求队列避免触发风控
-3. **免费额度**: 文生图免费，但有并发限制
+1. **Cloudflare验证**: v1 不做自动绕过，首次或失效后需要服务器端人工接管
+2. **会话文件**: `data/storage-state.json` 和 `data/cookies.json` 都保存在服务器卷内
+3. **频率限制**: 当前仍是单浏览器串行执行
 
 ## License
 

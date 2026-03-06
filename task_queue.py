@@ -1,14 +1,11 @@
 """任务队列管理"""
-import asyncio
-import json
 import logging
-from typing import Dict, Optional, List
+from typing import Dict, List, Optional
 from datetime import datetime
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 
 from models import TaskStatus, TaskInfo
-from zimage_client import ZImageBrowser
-from config import settings
+from session_manager import SessionManager, SessionNotReadyError
 
 logger = logging.getLogger(__name__)
 
@@ -34,49 +31,9 @@ class Task:
 class TaskQueue:
     """任务队列管理器"""
 
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._initialized = False
-        return cls._instance
-
-    def __init__(self):
-        if self._initialized:
-            return
-
+    def __init__(self, session_manager: SessionManager):
         self.tasks: Dict[str, Task] = {}
-        self.browser: Optional[ZImageBrowser] = None
-        self._browser_lock = asyncio.Lock()
-        self._initialized = True
-        self._ready = False
-
-        # 启动时初始化浏览器
-        asyncio.create_task(self._init_browser())
-
-    async def _init_browser(self):
-        """初始化浏览器"""
-        async with self._browser_lock:
-            try:
-                logger.info("正在初始化浏览器...")
-                self.browser = ZImageBrowser(
-                    cookie_file=settings.COOKIE_FILE,
-                    headless=settings.HEADLESS
-                )
-                await self.browser.init(
-                    slow_mo=settings.BROWSER_SLOW_MO,
-                    timeout=settings.BROWSER_TIMEOUT
-                )
-                self._ready = True
-                logger.info("浏览器初始化完成")
-            except Exception as e:
-                logger.error(f"浏览器初始化失败: {e}")
-                self._ready = False
-
-    def is_browser_ready(self) -> bool:
-        """检查浏览器是否就绪"""
-        return self._ready and self.browser is not None
+        self.session_manager = session_manager
 
     async def create_task(
         self,
@@ -127,48 +84,44 @@ class TaskQueue:
             logger.error(f"任务不存在: {task_id}")
             return
 
-        if not self.is_browser_ready():
-            task.status = TaskStatus.FAILED
-            task.error_message = "浏览器未就绪"
-            return
+        try:
+            task.status = TaskStatus.PROCESSING
+            logger.info(f"开始执行任务: {task_id}")
 
-        async with self._browser_lock:
-            try:
-                task.status = TaskStatus.PROCESSING
-                logger.info(f"开始执行任务: {task_id}")
+            def on_progress(p: int):
+                task.progress = p
 
-                # 定义进度回调
-                def on_progress(p: int):
-                    task.progress = p
+            result = await self.session_manager.generate_image(
+                prompt=task.prompt,
+                model=task.model,
+                size=task.size,
+                num_images=task.num_images,
+                negative_prompt=task.negative_prompt,
+                seed=task.seed,
+                progress_callback=on_progress
+            )
 
-                # 调用浏览器生成
-                result = await self.browser.generate_image(
-                    prompt=task.prompt,
-                    model=task.model,
-                    size=task.size,
-                    num_images=task.num_images,
-                    negative_prompt=task.negative_prompt,
-                    seed=task.seed,
-                    progress_callback=on_progress
-                )
-
-                if result.get("success"):
-                    task.status = TaskStatus.COMPLETED
-                    task.images = result.get("images", [])
-                    task.progress = 100
-                    logger.info(f"任务完成: {task_id}, 生成 {len(task.images)} 张图片")
-                else:
-                    task.status = TaskStatus.FAILED
-                    task.error_message = result.get("error", "未知错误")
-                    logger.error(f"任务失败: {task_id}, 错误: {task.error_message}")
-
-                task.completed_at = datetime.now().isoformat()
-
-            except Exception as e:
-                logger.error(f"执行任务异常: {e}")
+            if result.get("success"):
+                task.status = TaskStatus.COMPLETED
+                task.images = result.get("images", [])
+                task.progress = 100
+                logger.info(f"任务完成: {task_id}, 生成 {len(task.images)} 张图片")
+            else:
                 task.status = TaskStatus.FAILED
-                task.error_message = str(e)
-                task.completed_at = datetime.now().isoformat()
+                task.error_message = result.get("error", "未知错误")
+                logger.error(f"任务失败: {task_id}, 错误: {task.error_message}")
+
+            task.completed_at = datetime.now().isoformat()
+
+        except SessionNotReadyError as exc:
+            task.status = TaskStatus.FAILED
+            task.error_message = str(exc)
+            task.completed_at = datetime.now().isoformat()
+        except Exception as exc:
+            logger.error(f"执行任务异常: {exc}")
+            task.status = TaskStatus.FAILED
+            task.error_message = str(exc)
+            task.completed_at = datetime.now().isoformat()
 
     async def get_queue_info(self) -> dict:
         """获取队列信息"""

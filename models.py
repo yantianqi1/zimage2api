@@ -1,7 +1,8 @@
 """数据模型定义"""
-from typing import List, Optional
-from pydantic import BaseModel, Field
 from enum import Enum
+from typing import List, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ImageModel(str, Enum):
@@ -24,6 +25,18 @@ class ImageSize(str, Enum):
 
 class GenerateRequest(BaseModel):
     """生图请求"""
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "prompt": "一只可爱的猫咪，趴在窗台上晒太阳，写实风格",
+                "negative_prompt": "模糊，低质量，变形",
+                "model": "turbo",
+                "size": "1024x1024",
+                "num_images": 1,
+            }
+        }
+    )
+
     prompt: str = Field(..., min_length=1, max_length=2000, description="提示词")
     negative_prompt: Optional[str] = Field(None, max_length=500, description="负面提示词")
     model: ImageModel = Field(default=ImageModel.TURBO, description="模型")
@@ -31,24 +44,13 @@ class GenerateRequest(BaseModel):
     num_images: int = Field(default=1, ge=1, le=4, description="生成数量")
     seed: Optional[int] = Field(None, description="随机种子")
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "prompt": "一只可爱的猫咪，趴在窗台上晒太阳，写实风格",
-                "negative_prompt": "模糊，低质量，变形",
-                "model": "turbo",
-                "size": "1024x1024",
-                "num_images": 1
-            }
-        }
-
 
 class GenerateResponse(BaseModel):
     """生图响应"""
     success: bool
     task_id: str
     message: str
-    images: List[str] = []
+    images: List[str] = Field(default_factory=list)
     estimated_time: int = 0  # 预估等待时间(秒)
 
 
@@ -68,7 +70,7 @@ class TaskInfo(BaseModel):
     prompt: str
     model: str
     progress: int = 0  # 进度 0-100
-    images: List[str] = []
+    images: List[str] = Field(default_factory=list)
     error_message: Optional[str] = None
     created_at: str
     completed_at: Optional[str] = None
@@ -88,4 +90,23 @@ class HealthResponse(BaseModel):
     status: str
     browser_ready: bool
     queue_size: int
+    session_status: str = "unknown"
     version: str = "1.0.0"
+
+
+class SessionState(str, Enum):
+    """会话状态"""
+    UNINITIALIZED = "uninitialized"
+    READY = "ready"
+    NEEDS_HUMAN = "needs_human"
+    HANDOFF_ACTIVE = "handoff_active"
+    EXPIRED = "expired"
+    ERROR = "error"
+
+
+class SessionStatusResponse(BaseModel):
+    """会话状态响应"""
+    status: SessionState
+    ready: bool
+    handoff_url: Optional[str] = None
+    message: Optional[str] = None

@@ -1,19 +1,18 @@
 """API认证模块"""
-from fastapi import HTTPException, Security, status
+from fastapi import HTTPException, Request, Security, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import os
 
 security = HTTPBearer()
 
-# 从环境变量获取API密钥
-API_KEY = os.getenv("API_KEY", "your-secret-api-key")
-
-
-async def verify_api_key(credentials: HTTPAuthorizationCredentials = Security(security)) -> str:
+async def verify_api_key(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Security(security),
+) -> str:
     """验证API密钥"""
     token = credentials.credentials
+    api_key = request.app.state.settings.API_KEY
 
-    if token != API_KEY:
+    if token != api_key:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="无效的API密钥",

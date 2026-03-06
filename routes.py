@@ -1,28 +1,34 @@
-"""API路由定义"""
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from typing import Optional
-import uuid
 import asyncio
 import logging
+import uuid
+from typing import Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 
 from models import (
     GenerateRequest, GenerateResponse, TaskInfo, TaskStatus,
-    ModelInfo, HealthResponse, ImageModel, ImageSize
+    HealthResponse, ModelInfo, SessionStatusResponse
 )
 from auth import verify_api_key
-from task_queue import TaskQueue
+from session_manager import SessionNotReadyError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1")
 
-# 任务队列
-task_queue = TaskQueue()
+
+def get_task_queue(request: Request):
+    return request.app.state.task_queue
+
+
+def get_session_manager(request: Request):
+    return request.app.state.session_manager
 
 
 @router.post("/generate", response_model=GenerateResponse)
 async def generate_image(
     request: GenerateRequest,
     background_tasks: BackgroundTasks,
+    http_request: Request,
     api_key: str = Depends(verify_api_key)
 ):
     """
@@ -35,10 +41,23 @@ async def generate_image(
     - **negative_prompt**: 负面提示词（可选）
     - **seed**: 随机种子（可选）
     """
-    task_id = f"task_{uuid.uuid4().hex[:12]}"
+    session_manager = get_session_manager(http_request)
+    task_queue = get_task_queue(http_request)
 
-    # 创建任务
-    task = await task_queue.create_task(
+    try:
+        await session_manager.require_ready()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": getattr(exc, "code", "session_required"),
+                "status": getattr(exc, "session_status", "needs_human"),
+                "message": str(exc),
+            },
+        ) from exc
+
+    task_id = f"task_{uuid.uuid4().hex[:12]}"
+    await task_queue.create_task(
         task_id=task_id,
         prompt=request.prompt,
         model=request.model.value,
@@ -62,9 +81,11 @@ async def generate_image(
 @router.get("/tasks/{task_id}", response_model=TaskInfo)
 async def get_task_status(
     task_id: str,
+    request: Request,
     api_key: str = Depends(verify_api_key)
 ):
     """查询任务状态和结果"""
+    task_queue = get_task_queue(request)
     task = await task_queue.get_task(task_id)
 
     if not task:
@@ -76,6 +97,7 @@ async def get_task_status(
 @router.get("/tasks/{task_id}/wait")
 async def wait_for_task(
     task_id: str,
+    request: Request,
     timeout: Optional[int] = 60,
     api_key: str = Depends(verify_api_key)
 ):
@@ -84,6 +106,7 @@ async def wait_for_task(
 
     - **timeout**: 最长等待时间（秒），默认60秒
     """
+    task_queue = get_task_queue(request)
     task = await task_queue.get_task(task_id)
 
     if not task:
@@ -159,14 +182,57 @@ async def list_models(api_key: str = Depends(verify_api_key)):
     ]
 
 
+@router.get("/session/status", response_model=SessionStatusResponse)
+async def session_status(
+    request: Request,
+    api_key: str = Depends(verify_api_key)
+):
+    """获取会话状态。"""
+    session_manager = get_session_manager(request)
+    return await session_manager.get_status()
+
+
+@router.post("/session/handoff/start", response_model=SessionStatusResponse)
+async def session_handoff_start(
+    request: Request,
+    api_key: str = Depends(verify_api_key)
+):
+    """开始人工接管。"""
+    session_manager = get_session_manager(request)
+    return await session_manager.start_handoff()
+
+
+@router.post("/session/handoff/complete", response_model=SessionStatusResponse)
+async def session_handoff_complete(
+    request: Request,
+    api_key: str = Depends(verify_api_key)
+):
+    """完成人工接管。"""
+    session_manager = get_session_manager(request)
+    return await session_manager.complete_handoff()
+
+
+@router.post("/session/refresh", response_model=SessionStatusResponse)
+async def session_refresh(
+    request: Request,
+    api_key: str = Depends(verify_api_key)
+):
+    """刷新会话。"""
+    session_manager = get_session_manager(request)
+    return await session_manager.refresh()
+
+
 @router.get("/health", response_model=HealthResponse)
-async def health_check():
+async def health_check(request: Request):
     """健康检查接口（无需认证）"""
-    browser_status = task_queue.is_browser_ready()
+    session_manager = get_session_manager(request)
+    task_queue = get_task_queue(request)
+    session = await session_manager.get_status()
     queue_info = await task_queue.get_queue_info()
 
     return HealthResponse(
-        status="healthy" if browser_status else "degraded",
-        browser_ready=browser_status,
-        queue_size=queue_info["pending_count"]
+        status="healthy" if session.ready else "degraded",
+        browser_ready=session.ready,
+        queue_size=queue_info["pending_count"],
+        session_status=session.status.value,
     )
