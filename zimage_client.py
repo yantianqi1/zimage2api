@@ -6,6 +6,8 @@ from typing import Any, Callable, Dict, Optional
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
+from config import Settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,39 +41,11 @@ class ZImageBrowser:
         """初始化浏览器"""
         self.playwright = await async_playwright().start()
 
-        # 浏览器启动参数 - 反检测
-        launch_args = {
-            "headless": self.headless,
-            "slow_mo": slow_mo,
-            "args": [
-                "--disable-blink-features=AutomationControlled",
-                "--disable-web-security",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--disable-site-isolation-trials",
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-gpu",
-                "--disable-infobars",
-                "--window-size=1920,1080",
-                "--start-maximized",
-            ]
-        }
+        launch_options = self.build_launch_options(slow_mo=slow_mo)
+        self.browser = await self.playwright.chromium.launch(**launch_options)
 
-        self.browser = await self.playwright.chromium.launch(**launch_args)
-
-        # 上下文选项 - 模拟真实用户
-        context_options = {
-            "viewport": {"width": 1920, "height": 1080},
-            "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-            "locale": "zh-CN",
-            "timezone_id": "Asia/Shanghai",
-            "permissions": ["clipboard-read", "clipboard-write"],
-        }
-
-        if os.path.exists(self.state_file):
-            context_options["storage_state"] = self.state_file
-            logger.info("已加载 storage_state: %s", self.state_file)
+        settings = Settings()
+        context_options = self.build_context_options(settings)
 
         self.context = await self.browser.new_context(**context_options)
 
@@ -109,6 +83,40 @@ class ZImageBrowser:
 
         self._initialized = True
         logger.info("浏览器初始化完成")
+
+    def build_launch_options(self, slow_mo: int = 0) -> Dict[str, Any]:
+        """构造浏览器启动参数。"""
+        return {
+            "headless": self.headless,
+            "slow_mo": slow_mo,
+            "args": [
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--window-size=1920,1080",
+                "--start-maximized",
+                "--lang=zh-CN",
+            ],
+        }
+
+    def build_context_options(self, settings: Settings) -> Dict[str, Any]:
+        """构造浏览器上下文选项。"""
+        context_options: Dict[str, Any] = {
+            "viewport": {"width": 1920, "height": 1080},
+            "locale": settings.BROWSER_LOCALE,
+            "timezone_id": settings.BROWSER_TIMEZONE,
+            "permissions": ["clipboard-read", "clipboard-write"],
+        }
+
+        if settings.BROWSER_USER_AGENT:
+            context_options["user_agent"] = settings.BROWSER_USER_AGENT
+
+        if os.path.exists(self.state_file):
+            context_options["storage_state"] = self.state_file
+            logger.info("已加载 storage_state: %s", self.state_file)
+
+        return context_options
 
     async def open_homepage(self):
         """导航到目标网站"""

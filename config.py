@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     HEADLESS: bool = True
     BROWSER_TIMEOUT: int = 60000
     BROWSER_SLOW_MO: int = 0
+    BROWSER_LOCALE: str = "zh-CN"
+    BROWSER_TIMEZONE: str = "UTC"
+    BROWSER_USER_AGENT: str = ""
 
     # 会话配置
     COOKIE_FILE: str = "./cookies.json"
